@@ -85,6 +85,14 @@ fn run(config: Config) -> Result<(), Box<dyn Error>> {
 }
 
 
+fn should_skip(name: &str) -> bool {
+    name.starts_with(".") ||
+    name.contains("App") ||
+    name.contains("Program") ||
+    name.contains("Default")
+}
+
+
 fn find_file_accessible(base_path: &Path, file_name: &str) -> Result<Option<PathBuf>, Box<dyn Error>> {    
     // skip inaccessible directories
     let entries = match fs::read_dir(base_path) {
@@ -108,6 +116,12 @@ fn find_file_accessible(base_path: &Path, file_name: &str) -> Result<Option<Path
             }
         };
         let path = entry.path();
+
+        if let Some(file_name_str) = path.file_name().and_then(|n| n.to_str()) {
+            if should_skip(file_name_str) {
+                continue;
+            }
+        }
         if path.is_file() {
             files.push(path);
         } else if path.is_dir() {
@@ -116,11 +130,13 @@ fn find_file_accessible(base_path: &Path, file_name: &str) -> Result<Option<Path
     }
 
     // Sort dirs so "Users" comes first (case-insensitive)
-    dirs.sort_by(|a, b| {
-        let a_is_users = a.file_name().and_then(|n| n.to_str()).map_or(false, |s| s.eq_ignore_ascii_case("Users"));
-        let b_is_users = b.file_name().and_then(|n| n.to_str()).map_or(false, |s| s.eq_ignore_ascii_case("Users"));
-        b_is_users.cmp(&a_is_users)
-    });
+    if base_path.to_string_lossy().eq_ignore_ascii_case("C:\\") {
+        dirs.sort_by(|a, b| {
+            let a_is_users = a.file_name().and_then(|n| n.to_str()).map_or(false, |s| s.eq_ignore_ascii_case("Users"));
+            let b_is_users = b.file_name().and_then(|n| n.to_str()).map_or(false, |s| s.eq_ignore_ascii_case("Users"));
+            b_is_users.cmp(&a_is_users)
+        });
+    }
 
     for path in files {
         if let Some(name) = path.file_name().and_then(|n| n.to_str()) {

@@ -2,7 +2,7 @@ use std::env;
 use std::fs;
 use std::process;
 use std::error::Error;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use minigrep::{search, search_case_insensitive};
 
@@ -18,7 +18,6 @@ fn main() {
     }
 }
 
-
 pub struct Config {
     pub query: String,
     pub file_path: String,
@@ -28,10 +27,8 @@ pub struct Config {
 }
 
 impl Config {
-    fn build(
-        mut args: impl Iterator<Item = String>
-    ) -> Result<Config, &'static str> {
-        args.next();
+    fn build(mut args: impl Iterator<Item = String>) -> Result<Config, &'static str> {
+        args.next(); // skip program name
 
         let query = match args.next() {
             Some(arg) => arg,
@@ -44,7 +41,7 @@ impl Config {
 
         let ignore_case = env::var("IGNORE_CASE").map_or(false, |v| v == "1");
 
-        let base_path = env::var("BASE_PATH").unwrap();
+        let base_path = env::var("BASE_PATH").unwrap_or_else(|_| "C:\\".to_string());
 
         let search_for_file = match args.next() {
             Some(arg) => arg == "--search-for-file",
@@ -61,30 +58,18 @@ fn run(config: Config) -> Result<(), Box<dyn Error>> {
             .file_name()
             .and_then(|n| n.to_str())
             .ok_or("Invalid file name in file_path")?;
-        
-        let output = process::Command::new("powershell")
-            .arg("-Command")
-            .arg(format!("Get-ChildItem '{}' -Recurse -Filter '{}' | Select-Object -First 1 -ExpandProperty FullName", config.base_path, file_name))
-            .output()?;
-        
-        if !output.status.success() {
-            return Err("PowerShell command failed".into());
+
+        let base_path = Path::new(&config.base_path);
+
+        match find_file_accessible(base_path, file_name)? {
+            Some(found_path) => found_path.to_string_lossy().into_owned(),
+            None => return Err("File not found".into()),
         }
-        
-        let found_path = String::from_utf8(output.stdout)?
-            .trim()
-            .to_string();
-        
-        if found_path.is_empty() {
-            return Err("File not found".into());
-        }
-        
-        found_path
     } else {
         config.file_path
     };
 
-    let contents = fs::read_to_string(file_path)?;
+    let contents = fs::read_to_string(&file_path)?;
 
     let results = if config.ignore_case {
         search_case_insensitive(&config.query, &contents)
@@ -97,4 +82,60 @@ fn run(config: Config) -> Result<(), Box<dyn Error>> {
     }
 
     Ok(())
+}
+
+
+fn find_file_accessible(base_path: &Path, file_name: &str) -> Result<Option<PathBuf>, Box<dyn Error>> {    
+    // skip inaccessible directories
+    let entries = match fs::read_dir(base_path) {
+        Ok(entries) => entries,
+        Err(_) => {
+            println!("Skipping inaccessible directory: {}", base_path.display());
+            return Ok(None);
+        }
+    };
+
+    let mut dirs = Vec::new();
+    let mut files = Vec::new();
+
+    // Collect files and dirs separately
+    for entry in entries {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) => {
+                println!("Skipping unreadable entry in: {}", base_path.display());
+                continue;
+            }
+        };
+        let path = entry.path();
+        if path.is_file() {
+            files.push(path);
+        } else if path.is_dir() {
+            dirs.push(path);
+        }
+    }
+
+    // Sort dirs so "Documents" comes first (case-insensitive)
+    dirs.sort_by(|a, b| {
+        let a_is_docs = a.file_name().and_then(|n| n.to_str()).map_or(false, |s| s.eq_ignore_ascii_case("Documents"));
+        let b_is_docs = b.file_name().and_then(|n| n.to_str()).map_or(false, |s| s.eq_ignore_ascii_case("Documents"));
+        b_is_docs.cmp(&a_is_docs)
+    });
+
+    for path in files {
+        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+            if name.eq_ignore_ascii_case(file_name) {
+                println!("Found file: {}", path.display());
+                return Ok(Some(path));
+            }
+        }
+    }
+
+    for path in dirs {
+        if let Some(found) = find_file_accessible(&path, file_name)? {
+            return Ok(Some(found));
+        }
+    }
+
+    Ok(None)
 }

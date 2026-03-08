@@ -115,11 +115,11 @@ fn find_file_accessible(base_path: &Path, file_name: &str) -> Result<Option<Path
         }
     }
 
-    // Sort dirs so "Documents" comes first (case-insensitive)
+    // Sort dirs so "Users" comes first (case-insensitive)
     dirs.sort_by(|a, b| {
-        let a_is_docs = a.file_name().and_then(|n| n.to_str()).map_or(false, |s| s.eq_ignore_ascii_case("Documents"));
-        let b_is_docs = b.file_name().and_then(|n| n.to_str()).map_or(false, |s| s.eq_ignore_ascii_case("Documents"));
-        b_is_docs.cmp(&a_is_docs)
+        let a_is_users = a.file_name().and_then(|n| n.to_str()).map_or(false, |s| s.eq_ignore_ascii_case("Users"));
+        let b_is_users = b.file_name().and_then(|n| n.to_str()).map_or(false, |s| s.eq_ignore_ascii_case("Users"));
+        b_is_users.cmp(&a_is_users)
     });
 
     for path in files {
